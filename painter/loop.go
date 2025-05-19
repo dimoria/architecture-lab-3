@@ -2,59 +2,121 @@ package painter
 
 import (
 	"image"
+	"image/color"
+	"sync"
 
 	"golang.org/x/exp/shiny/screen"
 )
 
-// Receiver отримує текстуру, яка була підготовлена в результаті виконання команд у циклі подій.
 type Receiver interface {
 	Update(t screen.Texture)
 }
 
-// Loop реалізує цикл подій для формування текстури отриманої через виконання операцій отриманих з внутрішньої черги.
 type Loop struct {
 	Receiver Receiver
-
-	next screen.Texture // текстура, яка зараз формується
-	prev screen.Texture // текстура, яка була відправлення останнього разу у Receiver
-
-	mq messageQueue
-
-	stop    chan struct{}
-	stopReq bool
+	next     screen.Texture
+	prev     screen.Texture
+	mq       *messageQueue
+	stopChan chan struct{}
+	state    *State
 }
 
-var size = image.Pt(400, 400)
-
-// Start запускає цикл подій. Цей метод потрібно запустити до того, як викликати на ньому будь-які інші методи.
-func (l *Loop) Start(s screen.Screen) {
-	l.next, _ = s.NewTexture(size)
-	l.prev, _ = s.NewTexture(size)
-
-	// TODO: стартувати цикл подій.
+type State struct {
+	bgColor   color.Color
+	bgRect    *image.Rectangle
+	figures   []image.Point
+	moveDelta image.Point
 }
 
-// Post додає нову операцію у внутрішню чергу.
-func (l *Loop) Post(op Operation) {
-	if update := op.Do(l.next); update {
-		l.Receiver.Update(l.next)
-		l.next, l.prev = l.prev, l.next
+func NewLoop() *Loop {
+	return &Loop{
+		mq:       newMessageQueue(),
+		stopChan: make(chan struct{}),
+		state: &State{
+			bgColor: color.Black,
+		},
 	}
 }
 
-// StopAndWait сигналізує про необхідність завершити цикл та блокується до моменту його повної зупинки.
-func (l *Loop) StopAndWait() {
+func (l *Loop) Start(s screen.Screen) {
+	var err error
+	l.next, err = s.NewTexture(image.Point{800, 800})
+	if err != nil {
+		panic(err)
+	}
+	l.prev, err = s.NewTexture(image.Point{800, 800})
+	if err != nil {
+		panic(err)
+	}
+
+	go func() {
+		for {
+			op := l.mq.pull()
+			if op == nil {
+				close(l.stopChan)
+				return
+			}
+
+			if update := op.Do(l.next, l.state); update {
+				l.Receiver.Update(l.next)
+				l.next, l.prev = l.prev, l.next
+				l.next.Fill(l.next.Bounds(), l.state.bgColor, screen.Src)
+			}
+		}
+	}()
 }
 
-// TODO: Реалізувати чергу подій.
-type messageQueue struct{}
+func (l *Loop) Post(op Operation) {
+	l.mq.push(op)
+}
 
-func (mq *messageQueue) push(op Operation) {}
+func (l *Loop) StopAndWait() {
+	l.mq.shutdown()
+	<-l.stopChan
+}
+
+type messageQueue struct {
+	ops     []Operation
+	mu      sync.Mutex
+	cond    *sync.Cond
+	blocked bool
+}
+
+func newMessageQueue() *messageQueue {
+	mq := &messageQueue{}
+	mq.cond = sync.NewCond(&mq.mu)
+	return mq
+}
+
+func (mq *messageQueue) push(op Operation) {
+	mq.mu.Lock()
+	defer mq.mu.Unlock()
+
+	mq.ops = append(mq.ops, op)
+	mq.cond.Signal()
+}
 
 func (mq *messageQueue) pull() Operation {
-	return nil
+	mq.mu.Lock()
+	defer mq.mu.Unlock()
+
+	for len(mq.ops) == 0 && !mq.blocked {
+		mq.cond.Wait()
+	}
+
+	if len(mq.ops) == 0 {
+		return nil
+	}
+
+	op := mq.ops[0]
+	mq.ops = mq.ops[1:]
+	return op
 }
 
-func (mq *messageQueue) empty() bool {
-	return false
+func (mq *messageQueue) shutdown() {
+	mq.mu.Lock()
+	defer mq.mu.Unlock()
+
+	mq.blocked = true
+	mq.cond.Broadcast()
 }

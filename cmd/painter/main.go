@@ -10,21 +10,20 @@ import (
 
 func main() {
 	var (
-		pv ui.Visualizer // Візуалізатор створює вікно та малює у ньому.
-
-		// Потрібні для частини 2.
-		opLoop painter.Loop // Цикл обробки команд.
-		parser lang.Parser  // Парсер команд.
+		pv     ui.Visualizer
+		opLoop *painter.Loop // 1. Изменить тип на указатель
+		parser lang.Parser
 	)
 
-	//pv.Debug = true
-	pv.Title = "Simple painter"
+	// 2. Инициализировать Loop
+	opLoop = painter.NewLoop()
 
+	pv.Title = "Simple painter"
 	pv.OnScreenReady = opLoop.Start
 	opLoop.Receiver = &pv
 
 	go func() {
-		http.Handle("/", lang.HttpHandler(&opLoop, &parser))
+		http.Handle("/", lang.HttpHandler(opLoop, &parser))
 		_ = http.ListenAndServe("localhost:17000", nil)
 	}()
 
