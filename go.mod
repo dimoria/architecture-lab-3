@@ -3,7 +3,7 @@ module github.com/roman-mazur/architecture-lab-3
 go 1.24
 
 require (
-	golang.org/x/exp/shiny v0.0.0-20250305212735-054e65f0b394
+	golang.org/x/exp/shiny v0.0.0-20250506013437-ce4c2cf36ca6
 	golang.org/x/image v0.25.0
 	golang.org/x/mobile v0.0.0-20250305212854-3a7bc9f8a4de
 )
