@@ -11,7 +11,7 @@ import (
 func main() {
 	var (
 		pv     ui.Visualizer
-		opLoop *painter.Loop // 1. Изменить тип на указатель
+		opLoop *painter.Loop
 		parser lang.Parser
 	)
 
